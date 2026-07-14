@@ -4,7 +4,7 @@
   Licensed under MIT License
 -->
 
-# WhatsApp Web Message Scheduler
+# WhatsApp Web Scheduler
 
 [![GitHub](https://img.shields.io/badge/GitHub-fajarbc%2Fwaweb--scheduler-blue?logo=github)](https://github.com/fajarbc/waweb-scheduler)
 

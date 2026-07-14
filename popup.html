@@ -14,6 +14,7 @@
     .form-group { margin-bottom: 12px; }
     label { display: block; margin-bottom: 4px; font-weight: 500; font-size: 0.9rem; }
     input, select, textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; }
+    .hint { display: block; color: #777; font-size: 0.75rem; margin-top: 4px; line-height: 1.3; }
     textarea { resize: vertical; min-height: 60px; }
     button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; font-weight: 600; font-size: 0.9rem; }
 
@@ -64,46 +65,50 @@
   <div class="form-group">
     <label for="target">Target Name / Number</label>
     <div class="input-group">
-      <input type="text" id="target" placeholder="e.g. John Doe" required>
+      <input type="text" id="target" placeholder="e.g. John Doe" title="Exact WhatsApp chat, contact, or group name to search and open before sending." required>
       <button type="button" id="btn-capture" class="btn-capture" title="Auto-fill the name of the chat currently open in WhatsApp Web">Current Chat</button>
     </div>
+    <small class="hint">Use the exact chat/group name. Or open the chat in WhatsApp Web and click Current Chat.</small>
   </div>
 
   <div class="form-group">
     <label for="message">Message</label>
-    <textarea id="message" placeholder="Type your message here..." required></textarea>
+    <textarea id="message" placeholder="Type your message here..." title="Text message to send. Supports multiline text, emoji, and symbols." required></textarea>
+    <small class="hint">Supports multiline messages, emoji, and special characters. New lines are sent with Shift+Enter.</small>
   </div>
 
   <div class="row" style="margin-bottom: 12px;">
     <div class="form-group">
       <label for="time">Local Time</label>
-      <input type="datetime-local" id="time" required>
+      <input type="datetime-local" id="time" title="Local date and time when this message should be sent." required>
+      <small class="hint">Uses this computer's local time.</small>
     </div>
     <div class="form-group">
       <label for="recurring">Recurring</label>
-      <select id="recurring">
+      <select id="recurring" title="Choose whether this schedule runs once or repeats automatically.">
         <option value="none">One-time</option>
         <option value="daily">Daily</option>
         <option value="weekly">Weekly</option>
         <option value="monthly">Monthly</option>
       </select>
+      <small class="hint">Repeats after successful send.</small>
     </div>
   </div>
 
-  <button type="button" id="btn-save" class="btn-primary">Schedule</button>
+  <button type="button" id="btn-save" class="btn-primary" title="Save this message and create a Chrome alarm for the selected time.">Schedule</button>
   <div id="form-error" class="error-msg"></div>
 
   <div class="list-section">
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <h2 style="margin: 0;">History</h2>
-      <button type="button" id="btn-clear-history" style="background: none; border: none; color: #d9534f; cursor: pointer; text-decoration: underline; padding: 0; font-size: 0.8rem;">Clear Done</button>
+      <button type="button" id="btn-clear-history" style="background: none; border: none; color: #d9534f; cursor: pointer; text-decoration: underline; padding: 0; font-size: 0.8rem;" title="Remove all Sent and Failed messages from the list. Pending messages are kept.">Clear Done</button>
     </div>
 
     <div class="filter-tabs" id="filter-tabs">
-      <button class="filter-tab active" data-filter="all">All</button>
-      <button class="filter-tab" data-filter="pending">Pending</button>
-      <button class="filter-tab" data-filter="sent">Sent</button>
-      <button class="filter-tab" data-filter="failed">Failed</button>
+      <button class="filter-tab active" data-filter="all" title="View all schedules">All</button>
+      <button class="filter-tab" data-filter="pending" title="View schedules waiting to run">Pending</button>
+      <button class="filter-tab" data-filter="sent" title="View messages successfully sent">Sent</button>
+      <button class="filter-tab" data-filter="failed" title="View messages that failed to send">Failed</button>
     </div>
 
     <div id="schedule-list-container"></div>
