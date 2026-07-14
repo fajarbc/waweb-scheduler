@@ -23,13 +23,27 @@ function sleep(ms) {
 
 async function ensureWhatsAppTab() {
   const tabs = await chrome.tabs.query({ url: "https://web.whatsapp.com/*" });
+  let tab;
+
   if (tabs.length > 0) {
-    const tab = tabs.find((item) => item.active) || tabs[0];
+    tab = tabs.find((item) => item.active) || tabs[0];
     if (tab.windowId) await chrome.windows.update(tab.windowId, { focused: true });
-    return await chrome.tabs.update(tab.id, { active: true });
+    tab = await chrome.tabs.update(tab.id, { active: true });
+  } else {
+    tab = await chrome.tabs.create({ url: WHATSAPP_URL, active: true });
   }
 
-  return await chrome.tabs.create({ url: WHATSAPP_URL, active: true });
+  // Ensure content script is injected even for pre-existing tabs
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js']
+    });
+  } catch (e) {
+    // might fail if it's still navigating, that's fine, manifest handles auto-inject on load
+  }
+
+  return tab;
 }
 
 async function waitForWhatsAppReady(tabId, timeoutMs = 45000) {

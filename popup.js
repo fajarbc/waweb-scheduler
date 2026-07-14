@@ -28,6 +28,13 @@ async function captureOpenChat() {
   errEl.textContent = "";
   try {
     const tab = await getActiveWhatsAppTab();
+
+    // Inject script first to ensure it's there
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js']
+    });
+
     chrome.tabs.sendMessage(tab.id, { action: "capture" }, (response) => {
       if (chrome.runtime.lastError) {
         errEl.textContent = "Cannot capture: WhatsApp Web not fully loaded.";
