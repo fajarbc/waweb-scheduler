@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsApp Web Message Scheduler",
+  "version": "1.0.0",
+  "description": "Schedule one-time or recurring WhatsApp Web messages to be sent automatically at a specified local time.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Schedule WhatsApp Message"
+  }
+}
