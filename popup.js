@@ -1,4 +1,9 @@
-// popup.js - Interface for creating schedules
+/**
+ * popup.js - Interface for creating schedules
+ *
+ * Copyright (c) 2026 Fajar BC (https://github.com/fajarbc)
+ * Licensed under MIT License
+ */
 
 const STORAGE_KEY = "schedules";
 let currentFilter = "all";
@@ -112,62 +117,98 @@ async function createSchedule() {
 }
 
 async function renderSchedules() {
-  const pendingEl = document.getElementById("schedule-list-pending");
-  const sentEl = document.getElementById("schedule-list-sent");
-  const failedEl = document.getElementById("schedule-list-failed");
+  const listContainer = document.getElementById("schedule-list-container");
 
   chrome.storage.local.get(STORAGE_KEY, (data) => {
     let schedules = data[STORAGE_KEY] || [];
-
-    // Default order: newest first based on scheduled time (or nextRun)
     schedules = schedules.sort((a, b) => (b.nextRun || b.scheduledTime) - (a.nextRun || a.scheduledTime));
 
-    const groups = { pending: [], sent: [], failed: [] };
-    schedules.forEach((s) => groups[s.status] = groups[s.status] || []); // ensure buckets exist
+    if (currentFilter !== "all") {
+      schedules = schedules.filter((s) => s.status === currentFilter);
+    }
+
+    listContainer.innerHTML = "";
+    if (schedules.length === 0) {
+      listContainer.innerHTML = "<p style='font-size:0.85rem;color:#666;'>No schedules found.</p>";
+      return;
+    }
+
     schedules.forEach((s) => {
-      if (groups[s.status]) groups[s.status].push(s);
-      else groups["pending"].push(s); // unexpected status goes to pending
-    });
+      const item = document.createElement("div");
+      item.className = "schedule-item";
 
-    renderGroup(pendingEl, groups.pending);
-    renderGroup(sentEl, groups.sent);
-    renderGroup(failedEl, groups.failed);
-  });
-}
+      const header = document.createElement("div");
+      header.className = "schedule-header";
 
-function renderGroup(container, items) {
-  container.innerHTML = "";
-  if (!items || items.length === 0) {
-    container.innerHTML = "<p style='font-size:0.85rem;color:#666;'>None.</p>";
-    return;
-  }
+      const statusBadge = document.createElement("span");
+      statusBadge.className = `status-badge status-${s.status}`;
+      statusBadge.textContent = s.status;
 
-  items.forEach((s) => {
-    const item = document.createElement("div");
-    item.className = "schedule-item";
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "delete-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.onclick = () => {
+        chrome.runtime.sendMessage({ action: "deleteSchedule", id: s.id }, () => renderSchedules());
+      };
 
-    const dateStr = new Date(s.nextRun || s.scheduledTime).toLocaleString();
-    const recLabel = s.recurring !== "none" ? ` | ${s.recurring}` : "";
-    const msgHtml = escapeHtml(s.message).replace(/\n/g, "<br>");
+      header.appendChild(statusBadge);
+      header.appendChild(deleteBtn);
 
-    item.innerHTML = `
-      <div class="schedule-header">
-        <span class="status-badge status-${s.status}">${s.status}</span>
-        <button class="delete-btn" data-id="${s.id}">Delete</button>
-      </div>
-      <div><strong>To:</strong> ${escapeHtml(s.target)}</div>
-      <div><strong>When:</strong> ${dateStr}${recLabel}</div>
-      <div><strong>Msg:</strong> ${msgHtml}</div>
-      ${s.error ? `<div class="error-msg">Error: ${escapeHtml(s.error)}</div>` : ""}
-    `;
+      const targetRow = document.createElement("div");
+      targetRow.innerHTML = "<strong>To:</strong> ";
+      targetRow.appendChild(document.createTextNode(s.target));
 
-    container.appendChild(item);
-  });
+      const dateStr = new Date(s.nextRun || s.scheduledTime).toLocaleString();
+      const recLabel = s.recurring !== "none" ? ` | ${s.recurring}` : "";
+      const timeRow = document.createElement("div");
+      timeRow.innerHTML = "<strong>When:</strong> ";
+      timeRow.appendChild(document.createTextNode(dateStr + recLabel));
 
-  container.querySelectorAll(".delete-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-id");
-      chrome.runtime.sendMessage({ action: "deleteSchedule", id }, () => renderSchedules());
+      const msgRow = document.createElement("div");
+      msgRow.innerHTML = "<strong>Msg:</strong> ";
+
+      const msgPreview = document.createElement("div");
+      msgPreview.className = "msg-preview collapsed";
+
+      // XSS Safe: setting textContent instead of innerHTML
+      msgPreview.textContent = s.message;
+
+      msgRow.appendChild(msgPreview);
+
+      // Expand/Collapse logic
+      const numLines = s.message.split('\n').length;
+      if (numLines > 2 || s.message.length > 80) {
+        const toggleBtn = document.createElement("button");
+        toggleBtn.className = "expand-btn";
+        toggleBtn.textContent = "View complete message ▼";
+        toggleBtn.onclick = () => {
+          const isCollapsed = msgPreview.classList.contains("collapsed");
+          if (isCollapsed) {
+            msgPreview.classList.remove("collapsed");
+            msgPreview.style.whiteSpace = "pre-wrap"; // shows newlines
+            toggleBtn.textContent = "Collapse ▲";
+          } else {
+            msgPreview.classList.add("collapsed");
+            msgPreview.style.whiteSpace = "normal";
+            toggleBtn.textContent = "View complete message ▼";
+          }
+        };
+        msgRow.appendChild(toggleBtn);
+      }
+
+      item.appendChild(header);
+      item.appendChild(targetRow);
+      item.appendChild(timeRow);
+      item.appendChild(msgRow);
+
+      if (s.error) {
+        const errRow = document.createElement("div");
+        errRow.className = "error-msg";
+        errRow.textContent = `Error: ${s.error}`;
+        item.appendChild(errRow);
+      }
+
+      listContainer.appendChild(item);
     });
   });
 }

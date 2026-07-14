@@ -1,4 +1,5 @@
 {
+  "author": "Fajar BC (https://github.com/fajarbc)",
   "manifest_version": 3,
   "name": "WhatsApp Web Message Scheduler",
   "version": "1.0.0",

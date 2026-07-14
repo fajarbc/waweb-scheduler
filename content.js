@@ -1,5 +1,10 @@
-// content.js - Injected into web.whatsapp.com
-// Handles interacting with the WhatsApp Web DOM.
+/**
+ * content.js - Injected into web.whatsapp.com
+ * Handles interacting with the WhatsApp Web DOM.
+ *
+ * Copyright (c) 2026 Fajar BC (https://github.com/fajarbc)
+ * Licensed under MIT License
+ */
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

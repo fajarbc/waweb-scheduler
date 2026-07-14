@@ -1,5 +1,10 @@
-// background.js - Manifest V3 service worker
-// Handles alarms, opens/navigates WhatsApp Web, and orchestrates sending.
+/**
+ * background.js - Manifest V3 service worker
+ * Handles alarms, opens/navigates WhatsApp Web, and orchestrates sending.
+ *
+ * Copyright (c) 2026 Fajar BC (https://github.com/fajarbc)
+ * Licensed under MIT License
+ */
 
 const WHATSAPP_URL = "https://web.whatsapp.com/";
 const STORAGE_KEY = "schedules";
