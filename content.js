@@ -14,14 +14,27 @@ function simulateType(element, text) {
   element.focus();
 
   if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
-    // For standard HTML inputs
     element.value = text;
+    triggerInputEvent(element);
   } else {
-    // For contenteditable divs
-    document.execCommand("insertText", false, text);
+    // For contenteditable, document.execCommand('insertText') handles newlines poorly across browsers
+    // We split by newline, insert text, and for each line break we simulate Shift+Enter
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]) {
+        document.execCommand("insertText", false, lines[i]);
+      }
+      if (i < lines.length - 1) {
+        // Dispatch Shift+Enter to create a newline in WhatsApp
+        element.dispatchEvent(new KeyboardEvent("keydown", {
+          bubbles: true, cancelable: true,
+          key: "Enter", code: "Enter", keyCode: 13,
+          shiftKey: true // Important for WhatsApp to register as newline instead of send
+        }));
+      }
+    }
+    triggerInputEvent(element);
   }
-
-  triggerInputEvent(element);
 }
 
 // Query DOM repeatedly until element appears
@@ -85,17 +98,25 @@ async function doSendFlow(target, message) {
     }));
     await sleep(2000); // wait for chat view to load on the right
 
-    // Verify chat opened correctly (Optional but recommended)
-    const chatTitleSpan = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
+    // Verify chat opened correctly
+    let chatTitleSpan = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
     if (!chatTitleSpan || chatTitleSpan.textContent.trim().toLowerCase() !== target.toLowerCase()) {
       // If pressing Enter didn't work, we try clicking the list.
       const contactSpan = await findContactInList(target);
       if (!contactSpan) {
-        throw new Error(`Contact/Group '${target}' not found in search results or did not open.`);
+        throw new Error(`Contact/Group '${target}' not found in search results.`);
       }
       const clickableArea = contactSpan.closest('div[role="row"]') || contactSpan.parentElement;
       clickableArea.click();
       await sleep(1500);
+
+      // Verify again after click
+      chatTitleSpan = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
+    }
+
+    // Hard fail if we are not in the correct room
+    if (!chatTitleSpan || chatTitleSpan.textContent.trim().toLowerCase() !== target.toLowerCase()) {
+      throw new Error(`Failed to open target chat room. Active room is: ${chatTitleSpan ? chatTitleSpan.textContent.trim() : 'Unknown'}`);
     }
 
     // 3. Locate the chat message box (usually the contenteditable inside footer)
@@ -132,11 +153,18 @@ async function doSendFlow(target, message) {
 }
 
 function captureChatTitle() {
+  // First priority: use the exact testid attribute WhatsApp puts on the main chat room title
+  const exactHeader = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
+  if (exactHeader) {
+    const t = (exactHeader.getAttribute('title') || exactHeader.textContent || '').trim();
+    if (t) return t;
+  }
+
+  // Fallbacks scoped strictly to the #main conversation header
   const candidates = [
-    document.querySelector('header span[title]'),
-    document.querySelector('header span[dir="auto"]'),
-    document.querySelector('#main header span'),
-    document.querySelector('header .copyable-text span'),
+    document.querySelector('#main header span[data-testid="conversation-info-header-chat-title"]'),
+    document.querySelector('#main header span[title]'),
+    document.querySelector('#main header .copyable-text span'),
   ];
   for (const el of candidates) {
     if (el) {

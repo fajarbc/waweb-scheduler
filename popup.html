@@ -11,10 +11,22 @@
     input, select, textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; }
     textarea { resize: vertical; min-height: 60px; }
     button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; font-weight: 600; font-size: 0.9rem; }
+
     .btn-primary { background-color: #25D366; color: white; width: 100%; margin-top: 5px; }
     .btn-primary:hover { background-color: #1ebd5a; }
-    .btn-capture { background-color: #128C7E; color: white; font-size: 0.8rem; margin-top: 4px; display: inline-block; width: auto; }
+
+    .input-group { display: flex; gap: 5px; }
+    .input-group input { flex: 1; }
+    .btn-capture { background-color: #128C7E; color: white; font-size: 0.8rem; flex-shrink: 0; padding: 0 10px; }
+
+    .row { display: flex; gap: 10px; }
+    .row .form-group { flex: 1; margin-bottom: 0; }
+
     .list-section { margin-top: 25px; border-top: 1px solid #eee; padding-top: 15px; }
+    .filter-tabs { display: flex; gap: 5px; margin: 10px 0; }
+    .filter-tab { padding: 4px 8px; font-size: 0.8rem; background: #eee; color: #555; border-radius: 4px; cursor: pointer; border: none; }
+    .filter-tab.active { background: #25D366; color: white; }
+
     .schedule-item { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 0.85rem; }
     .schedule-header { font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; }
     .status-badge { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; }
@@ -22,6 +34,10 @@
     .status-sent { background-color: #d4edda; color: #155724; }
     .status-failed { background-color: #f8d7da; color: #721c24; }
     .delete-btn { color: red; background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; }
+
+    .msg-preview { color: #444; margin-top: 4px; background: #f9f9f9; padding: 6px; border-radius: 4px; border: 1px solid #eee; word-break: break-word; }
+    .msg-preview.collapsed { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .expand-btn { color: #128C7E; background: none; border: none; padding: 0; font-size: 0.75rem; cursor: pointer; margin-top: 2px; }
     .error-msg { color: #d9534f; margin-top: 5px; font-size: 0.8rem; }
   </style>
 </head>
@@ -30,16 +46,10 @@
 
   <div class="form-group">
     <label for="target">Target Name / Number</label>
-    <input type="text" id="target" placeholder="e.g. John Doe or +123456789" required>
-    <button type="button" id="btn-capture" class="btn-capture">Capture Open Chat</button>
-  </div>
-
-  <div class="form-group" style="display:none;">
-    <label for="targetType">Type</label>
-    <select id="targetType">
-      <option value="name">Chat Name</option>
-      <option value="phone">Phone Number</option>
-    </select>
+    <div class="input-group">
+      <input type="text" id="target" placeholder="e.g. John Doe" required>
+      <button type="button" id="btn-capture" class="btn-capture">Capture</button>
+    </div>
   </div>
 
   <div class="form-group">
@@ -47,27 +57,39 @@
     <textarea id="message" placeholder="Type your message here..." required></textarea>
   </div>
 
-  <div class="form-group">
-    <label for="time">Local Time</label>
-    <input type="datetime-local" id="time" required>
-  </div>
-
-  <div class="form-group">
-    <label for="recurring">Recurring</label>
-    <select id="recurring">
-      <option value="none">One-time</option>
-      <option value="daily">Daily</option>
-      <option value="weekly">Weekly</option>
-      <option value="monthly">Monthly</option>
-    </select>
+  <div class="row" style="margin-bottom: 12px;">
+    <div class="form-group">
+      <label for="time">Local Time</label>
+      <input type="datetime-local" id="time" required>
+    </div>
+    <div class="form-group">
+      <label for="recurring">Recurring</label>
+      <select id="recurring">
+        <option value="none">One-time</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+    </div>
   </div>
 
   <button type="button" id="btn-save" class="btn-primary">Schedule</button>
   <div id="form-error" class="error-msg"></div>
 
   <div class="list-section">
-    <h2>My Schedules</h2>
-    <div id="schedule-list"></div>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h2 style="margin: 0;">History</h2>
+      <button type="button" id="btn-clear-history" style="background: none; border: none; color: #d9534f; cursor: pointer; text-decoration: underline; padding: 0; font-size: 0.8rem;">Clear Done</button>
+    </div>
+
+    <div class="filter-tabs" id="filter-tabs">
+      <button class="filter-tab active" data-filter="all">All</button>
+      <button class="filter-tab" data-filter="pending">Pending</button>
+      <button class="filter-tab" data-filter="sent">Sent</button>
+      <button class="filter-tab" data-filter="failed">Failed</button>
+    </div>
+
+    <div id="schedule-list-container"></div>
   </div>
 
   <script src="popup.js"></script>

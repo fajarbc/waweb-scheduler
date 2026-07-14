@@ -142,6 +142,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
+    if (msg.action === "clearHistory") {
+      const schedules = (await getSchedules()).filter((item) => item.status === "pending");
+      await saveSchedules(schedules);
+      sendResponse({ ok: true });
+      return;
+    }
+
     sendResponse({ ok: false, error: "Unknown action." });
   })();
 

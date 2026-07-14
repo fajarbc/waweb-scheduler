@@ -1,10 +1,19 @@
 // popup.js - Interface for creating schedules
 
 const STORAGE_KEY = "schedules";
+let currentFilter = "all";
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-save").addEventListener("click", createSchedule);
   document.getElementById("btn-capture").addEventListener("click", captureOpenChat);
+  document.getElementById("btn-clear-history").addEventListener("click", clearHistory);
+  document.querySelectorAll(".filter-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentFilter = btn.dataset.filter;
+      document.querySelectorAll(".filter-tab").forEach((item) => item.classList.toggle("active", item === btn));
+      renderSchedules();
+    });
+  });
   renderSchedules();
 });
 
@@ -103,44 +112,70 @@ async function createSchedule() {
 }
 
 async function renderSchedules() {
-  const listEl = document.getElementById("schedule-list");
+  const pendingEl = document.getElementById("schedule-list-pending");
+  const sentEl = document.getElementById("schedule-list-sent");
+  const failedEl = document.getElementById("schedule-list-failed");
+
   chrome.storage.local.get(STORAGE_KEY, (data) => {
-    const schedules = (data[STORAGE_KEY] || []).sort((a, b) => a.scheduledTime - b.scheduledTime);
+    let schedules = data[STORAGE_KEY] || [];
 
-    if (schedules.length === 0) {
-      listEl.innerHTML = "<p style='font-size:0.85rem;color:#666;'>No schedules yet.</p>";
-      return;
-    }
+    // Default order: newest first based on scheduled time (or nextRun)
+    schedules = schedules.sort((a, b) => (b.nextRun || b.scheduledTime) - (a.nextRun || a.scheduledTime));
 
-    listEl.innerHTML = "";
+    const groups = { pending: [], sent: [], failed: [] };
+    schedules.forEach((s) => groups[s.status] = groups[s.status] || []); // ensure buckets exist
     schedules.forEach((s) => {
-      const item = document.createElement("div");
-      item.className = "schedule-item";
-
-      const dateStr = new Date(s.nextRun || s.scheduledTime).toLocaleString();
-      const recLabel = s.recurring !== "none" ? ` | ${s.recurring}` : "";
-
-      item.innerHTML = `
-        <div class="schedule-header">
-          <span class="status-badge status-${s.status}">${s.status}</span>
-          <button class="delete-btn" data-id="${s.id}">Delete</button>
-        </div>
-        <div><strong>To:</strong> ${escapeHtml(s.target)}</div>
-        <div><strong>When:</strong> ${dateStr}${recLabel}</div>
-        <div><strong>Msg:</strong> ${escapeHtml(s.message)}</div>
-        ${s.error ? `<div class="error-msg">Error: ${escapeHtml(s.error)}</div>` : ""}
-      `;
-
-      listEl.appendChild(item);
+      if (groups[s.status]) groups[s.status].push(s);
+      else groups["pending"].push(s); // unexpected status goes to pending
     });
 
-    listEl.querySelectorAll(".delete-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-id");
-        chrome.runtime.sendMessage({ action: "deleteSchedule", id }, () => renderSchedules());
-      });
+    renderGroup(pendingEl, groups.pending);
+    renderGroup(sentEl, groups.sent);
+    renderGroup(failedEl, groups.failed);
+  });
+}
+
+function renderGroup(container, items) {
+  container.innerHTML = "";
+  if (!items || items.length === 0) {
+    container.innerHTML = "<p style='font-size:0.85rem;color:#666;'>None.</p>";
+    return;
+  }
+
+  items.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = "schedule-item";
+
+    const dateStr = new Date(s.nextRun || s.scheduledTime).toLocaleString();
+    const recLabel = s.recurring !== "none" ? ` | ${s.recurring}` : "";
+    const msgHtml = escapeHtml(s.message).replace(/\n/g, "<br>");
+
+    item.innerHTML = `
+      <div class="schedule-header">
+        <span class="status-badge status-${s.status}">${s.status}</span>
+        <button class="delete-btn" data-id="${s.id}">Delete</button>
+      </div>
+      <div><strong>To:</strong> ${escapeHtml(s.target)}</div>
+      <div><strong>When:</strong> ${dateStr}${recLabel}</div>
+      <div><strong>Msg:</strong> ${msgHtml}</div>
+      ${s.error ? `<div class="error-msg">Error: ${escapeHtml(s.error)}</div>` : ""}
+    `;
+
+    container.appendChild(item);
+  });
+
+  container.querySelectorAll(".delete-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      chrome.runtime.sendMessage({ action: "deleteSchedule", id }, () => renderSchedules());
     });
   });
+}
+
+function clearHistory() {
+  if (confirm("Clear all Sent and Failed messages? Pending schedules will be kept.")) {
+    chrome.runtime.sendMessage({ action: "clearHistory" }, () => renderSchedules());
+  }
 }
 
 function escapeHtml(text) {
