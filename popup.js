@@ -19,8 +19,107 @@ document.addEventListener("DOMContentLoaded", () => {
       renderSchedules();
     });
   });
+  setupRichTextToolbar();
   renderSchedules();
 });
+
+function setupRichTextToolbar() {
+  const ta = document.getElementById("message");
+  document.querySelectorAll(".rt-btn").forEach((btn) => {
+    btn.addEventListener("click", () => applyFormatting(ta, btn.dataset.cmd));
+  });
+  setupAutoList(ta);
+}
+
+function setupAutoList(ta) {
+  ta.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey) return;
+
+    const pos = ta.selectionStart;
+    const val = ta.value;
+    const lineStart = val.lastIndexOf("\n", pos - 1) + 1;
+    const lineEnd = val.indexOf("\n", pos);
+    const line = val.slice(lineStart, lineEnd === -1 ? val.length : lineEnd);
+
+    const numMatch = line.match(/^(\d+)\.\s(.*)$/);
+    const bulletMatch = line.match(/^([-*•])\s(.*)$/);
+
+    if (numMatch) {
+      e.preventDefault();
+      const n = parseInt(numMatch[1], 10);
+      const content = numMatch[2];
+      if (content.trim() === "") {
+        exitList(ta, val, lineStart, line.length);
+      } else {
+        insertAtCaret(ta, pos, `\n${n + 1}. `);
+      }
+    } else if (bulletMatch) {
+      e.preventDefault();
+      const sym = bulletMatch[1];
+      const content = bulletMatch[2];
+      if (content.trim() === "") {
+        exitList(ta, val, lineStart, line.length);
+      } else {
+        insertAtCaret(ta, pos, `\n${sym} `);
+      }
+    }
+  });
+}
+
+function insertAtCaret(ta, pos, insert) {
+  const val = ta.value;
+  ta.value = val.slice(0, pos) + insert + val.slice(pos);
+  const caret = pos + insert.length;
+  ta.focus();
+  ta.setSelectionRange(caret, caret);
+}
+
+function exitList(ta, val, lineStart, lineLength) {
+  const removeStart = lineStart > 0 ? lineStart - 1 : lineStart;
+  ta.value = val.slice(0, removeStart) + val.slice(lineStart + lineLength);
+  ta.focus();
+  ta.setSelectionRange(removeStart, removeStart);
+}
+
+function applyFormatting(ta, cmd) {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const value = ta.value;
+  const selected = value.slice(start, end);
+
+  const wrap = (marker) => {
+    const text = selected || "text";
+    return { text: `${marker}${text}${marker}`, offset: marker.length, selLen: text.length };
+  };
+  const prefixLines = (prefix) => {
+    const lines = (selected || "text").split("\n");
+    return { text: lines.map((l) => prefix + l).join("\n"), offset: prefix.length, selLen: 0 };
+  };
+
+  let result;
+  switch (cmd) {
+    case "bold": result = wrap("*"); break;
+    case "italic": result = wrap("_"); break;
+    case "strike": result = wrap("~"); break;
+    case "code": result = wrap("`"); break;
+    case "bullet": result = prefixLines("- "); break;
+    case "number": result = prefixLines("1. "); break;
+    case "quote": result = prefixLines("> "); break;
+    default: return;
+  }
+
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  ta.value = before + result.text + after;
+
+  ta.focus();
+  if (selected) {
+    ta.setSelectionRange(start + result.offset, start + result.offset + result.selLen);
+  } else {
+    const caret = start + result.offset;
+    ta.setSelectionRange(caret, caret + result.selLen);
+  }
+}
 
 function getActiveWhatsAppTab() {
   return new Promise((resolve, reject) => {
