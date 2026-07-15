@@ -15,6 +15,10 @@ A simple Google Chrome Extension to schedule sending text messages on WhatsApp W
 **Copyright (c) 2026 Fajar BC — https://github.com/fajarbc**  
 Licensed under the [MIT License](LICENSE).
 
+## Screenshot
+
+![WhatsApp Web Scheduler screenshot](screenshot.png)
+
 ## Features
 - Wakes up via Chrome Alarms in the background.
 - Scans open tabs for an active WhatsApp Web session, or automatically opens a new one if none exists (Fully Automated).
@@ -27,13 +31,31 @@ Licensed under the [MIT License](LICENSE).
 - **`content.js`**: Injected script running on `https://web.whatsapp.com/` communicating with WhatsApp Web's DOM structure.
 - **`popup.html/js`**: UI to schedule, view, and delete messages.
 
-## Installation & Deployment (Development Mode)
-1. Download or clone this directory.
+## Installation
+
+This extension is not available on the Chrome Web Store yet.
+
+### Download ZIP from GitHub Releases
+1. Go to [GitHub Releases](https://github.com/fajarbc/waweb-scheduler/releases).
+2. Download `waweb-scheduler.zip` from the latest release.
+3. Extract the ZIP file.
+4. Open Google Chrome and navigate to `chrome://extensions/`.
+5. Enable **Developer mode** using the toggle switch in the top right corner.
+6. Click **Load unpacked**.
+7. Select the extracted extension folder.
+8. Pin the extension to your toolbar for easy access.
+
+### Development Mode
+1. Clone this repository.
 2. Open Google Chrome and navigate to `chrome://extensions/`.
-3. Enable **Developer mode** using the toggle switch in the top right corner.
-4. Click the **Load unpacked** button in the top left.
+3. Enable **Developer mode**.
+4. Click **Load unpacked**.
 5. Select this project folder (`bot-wa`).
 6. Pin the extension to your toolbar for easy access.
+
+## Release ZIP Automation
+
+Every push to `main` and every manual GitHub Actions run creates a GitHub Release containing `waweb-scheduler.zip` for direct download.
 
 ## Usage Guide
 ### Capture and Schedule
