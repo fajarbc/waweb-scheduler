@@ -166,7 +166,7 @@ async function captureOpenChat() {
 
 function formatDateTimeLocal(date) {
   const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 async function createSchedule() {
@@ -183,14 +183,9 @@ async function createSchedule() {
     return;
   }
 
-  const scheduledDate = new Date(timeStr);
-  const scheduledTime = scheduledDate.getTime();
+  const scheduledTime = new Date(timeStr).getTime();
   if (isNaN(scheduledTime)) {
     errEl.textContent = "Invalid time format.";
-    return;
-  }
-  if (![0, 30].includes(scheduledDate.getSeconds())) {
-    errEl.textContent = "Seconds must be 00 or 30.";
     return;
   }
   if (scheduledTime <= Date.now()) {
@@ -330,6 +325,4 @@ function escapeHtml(text) {
 }
 
 // Pre-fill the time field with "now + 5 mins" for convenience
-const defaultTime = new Date(Date.now() + 5 * 60 * 1000);
-defaultTime.setSeconds(defaultTime.getSeconds() < 30 ? 30 : 60, 0);
-document.getElementById("time").value = formatDateTimeLocal(defaultTime);
+document.getElementById("time").value = formatDateTimeLocal(new Date(Date.now() + 5 * 60 * 1000));

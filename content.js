@@ -95,7 +95,7 @@ async function doSendFlow(target, message) {
     await sleep(500);
 
     simulateType(searchBox, target);
-    await sleep(1500); // give WA time to fetch search results
+    await sleep(1000); // give WA time to fetch search results
 
     // 2. Click the top search result simply by pressing Enter on the search box
     searchBox.dispatchEvent(new KeyboardEvent("keydown", {
@@ -144,7 +144,7 @@ async function doSendFlow(target, message) {
 
     // 4. Type the message
     simulateType(msgBox, message);
-    await sleep(800);
+    await sleep(250);
 
     // 5. Send with Enter instead of relying on WhatsApp's changing send button DOM.
     msgBox.dispatchEvent(new KeyboardEvent("keydown", {
