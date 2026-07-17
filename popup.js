@@ -201,7 +201,7 @@ async function createSchedule() {
     scheduledTime,
     nextRun: scheduledTime,
     recurring,
-    status: "pending",
+    status: recurring === "none" ? "pending" : "running",
   };
 
   chrome.runtime.sendMessage({ action: "createSchedule", schedule }, (response) => {
@@ -220,6 +220,9 @@ async function renderSchedules() {
 
   chrome.storage.local.get(STORAGE_KEY, (data) => {
     let schedules = data[STORAGE_KEY] || [];
+    schedules.forEach((schedule) => {
+      if (schedule.recurring !== "none" && schedule.status === "pending") schedule.status = "running";
+    });
     schedules = schedules.sort((a, b) => (b.nextRun || b.scheduledTime) - (a.nextRun || a.scheduledTime));
 
     if (currentFilter !== "all") {
@@ -243,15 +246,31 @@ async function renderSchedules() {
       statusBadge.className = `status-badge status-${s.status}`;
       statusBadge.textContent = s.status;
 
+      const actions = document.createElement("div");
+      actions.className = "schedule-actions";
+
+      if (s.recurring !== "none" && s.status === "running") {
+        const stopBtn = document.createElement("button");
+        stopBtn.className = "stop-btn";
+        stopBtn.textContent = "Stop";
+        stopBtn.title = `Stop recurring schedule for ${s.target}`;
+        stopBtn.onclick = () => {
+          chrome.runtime.sendMessage({ action: "stopSchedule", id: s.id }, () => renderSchedules());
+        };
+        actions.appendChild(stopBtn);
+      }
+
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "delete-btn";
       deleteBtn.textContent = "Delete";
+      deleteBtn.title = `Delete schedule for ${s.target}`;
       deleteBtn.onclick = () => {
         chrome.runtime.sendMessage({ action: "deleteSchedule", id: s.id }, () => renderSchedules());
       };
+      actions.appendChild(deleteBtn);
 
       header.appendChild(statusBadge);
-      header.appendChild(deleteBtn);
+      header.appendChild(actions);
 
       const targetRow = document.createElement("div");
       targetRow.innerHTML = "<strong>To:</strong> ";
@@ -313,7 +332,7 @@ async function renderSchedules() {
 }
 
 function clearHistory() {
-  if (confirm("Clear all Sent and Failed messages? Pending schedules will be kept.")) {
+  if (confirm("Clear all Sent and Failed messages? Active and stopped schedules will be kept.")) {
     chrome.runtime.sendMessage({ action: "clearHistory" }, () => renderSchedules());
   }
 }

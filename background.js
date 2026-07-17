@@ -88,7 +88,10 @@ async function executeSchedule(id) {
   const execution = (async () => {
     const schedules = await getSchedules();
     const schedule = schedules.find((item) => item.id === id);
-    if (!schedule || schedule.status !== "pending" || cancelledScheduleIds.has(id)) return;
+    const runnable = schedule?.recurring === "none"
+      ? schedule.status === "pending"
+      : ["pending", "running"].includes(schedule?.status);
+    if (!runnable || cancelledScheduleIds.has(id)) return;
 
     const tab = await ensureWhatsAppTab();
     await sleep(3000);
@@ -101,6 +104,7 @@ async function executeSchedule(id) {
       schedule.error = "WhatsApp Web is not ready. Log in once, then leave Chrome able to open web.whatsapp.com.";
     } else {
       try {
+        if (cancelledScheduleIds.has(id)) return;
         const res = await chrome.tabs.sendMessage(tab.id, {
           action: "send",
           target: schedule.target,
@@ -127,7 +131,7 @@ async function executeSchedule(id) {
 
     if (schedule.recurring !== "none" && schedule.status === "sent") {
       schedule.nextRun = computeNextRun(schedule);
-      schedule.status = "pending";
+      schedule.status = "running";
       chrome.alarms.create(alarmNameFor(schedule.id), { when: schedule.nextRun });
     }
 
@@ -159,6 +163,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
+    if (msg.action === "stopSchedule") {
+      cancelledScheduleIds.add(msg.id);
+      await chrome.alarms.clear(alarmNameFor(msg.id));
+      const running = runningExecutions.get(msg.id);
+      if (running) await running;
+      const schedules = await getSchedules();
+      const schedule = schedules.find((item) =>
+        item.id === msg.id && item.recurring !== "none" && ["pending", "running"].includes(item.status)
+      );
+      if (schedule) schedule.status = "stopped";
+      await saveSchedules(schedules);
+      await chrome.alarms.clear(alarmNameFor(msg.id));
+      sendResponse({ ok: Boolean(schedule) });
+      return;
+    }
+
     if (msg.action === "deleteSchedule") {
       cancelledScheduleIds.add(msg.id);
       await chrome.alarms.clear(alarmNameFor(msg.id));
@@ -172,7 +192,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg.action === "clearHistory") {
-      const schedules = (await getSchedules()).filter((item) => item.status === "pending");
+      const schedules = (await getSchedules()).filter((item) => !["sent", "failed"].includes(item.status));
       await saveSchedules(schedules);
       sendResponse({ ok: true });
       return;

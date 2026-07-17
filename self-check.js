@@ -40,29 +40,56 @@ const vm = require("node:vm");
     structuredClone,
   };
   vm.runInNewContext(fs.readFileSync("background.js", "utf8"), context);
-  const start = Date.now() + 10 * 60 * 1000;
-  assert.equal(context.computeNextRun({ recurring: "minute", scheduledTime: start }), start + 60 * 1000);
 
-  schedules = [{
-    id: "race",
+  const sendAction = (action, id) => new Promise((resolve) => {
+    messageListener({ action, id }, {}, resolve);
+  });
+  const start = Date.now() + 10 * 60 * 1000;
+  const recurring = (id) => ({
+    id,
     target: "Test",
     targetType: "name",
-    message: "Do not send",
+    message: "Test message",
     scheduledTime: start,
     nextRun: start,
     recurring: "minute",
-    status: "pending",
-  }];
-  alarmListener({ name: "msg_race" });
-  await new Promise((resolve) => messageListener(
-    { action: "deleteSchedule", id: "race" },
-    {},
-    resolve,
-  ));
-  await Promise.resolve();
+    status: "running",
+  });
 
+  assert.equal(context.computeNextRun(recurring("next")), start + 60 * 1000);
+
+  schedules = [recurring("repeat")];
+  await context.executeSchedule("repeat");
+  assert.equal(sends, 1);
+  assert.equal(schedules[0].status, "running");
+  assert.deepEqual(createdAlarms, ["msg_repeat"]);
+
+  sends = 0;
+  createdAlarms.length = 0;
+  schedules = [recurring("delete-race")];
+  alarmListener({ name: "msg_delete-race" });
+  await sendAction("deleteSchedule", "delete-race");
   assert.equal(sends, 0);
   assert.equal(schedules.length, 0);
   assert.equal(createdAlarms.length, 0);
+
+  schedules = [recurring("stop-race")];
+  alarmListener({ name: "msg_stop-race" });
+  await sendAction("stopSchedule", "stop-race");
+  assert.equal(sends, 0);
+  assert.equal(schedules.length, 1);
+  assert.equal(schedules[0].status, "stopped");
+  assert.equal(createdAlarms.length, 0);
+
+  schedules = [
+    { ...recurring("running"), status: "running" },
+    { ...recurring("stopped"), status: "stopped" },
+    { ...recurring("pending"), recurring: "none", status: "pending" },
+    { ...recurring("sent"), recurring: "none", status: "sent" },
+    { ...recurring("failed"), recurring: "none", status: "failed" },
+  ];
+  await sendAction("clearHistory");
+  assert.deepEqual(schedules.map((item) => item.status), ["running", "stopped", "pending"]);
+
   console.log("Self-check passed.");
 })();
