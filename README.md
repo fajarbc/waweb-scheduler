@@ -17,7 +17,10 @@ Licensed under the [MIT License](LICENSE).
 
 ## Screenshot
 
-![WhatsApp Web Scheduler screenshot](screenshot.png)
+<p float="left">
+  <img src="screenshots/1.png" width="250" />
+  <img src="screenshots/2.png" width="250" /> 
+</p>
 
 ## Features
 - Wakes up via Chrome Alarms in the background.

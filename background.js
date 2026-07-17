@@ -10,10 +10,27 @@ const WHATSAPP_URL = "https://web.whatsapp.com/";
 const STORAGE_KEY = "schedules";
 const cancelledScheduleIds = new Set();
 const runningExecutions = new Map();
+const RECURRING_OPTIONS = ["minute", "daily", "weekly", "monthly"];
+const HISTORY_LIMIT = 50;
+
+function normalizeSchedule(schedule) {
+  const legacyHistory = Number.isFinite(schedule.sentAt) ? [schedule.sentAt] : [];
+  const sentHistory = Array.isArray(schedule.sentHistory)
+    ? schedule.sentHistory.filter(Number.isFinite).slice(-HISTORY_LIMIT)
+    : legacyHistory;
+
+  return {
+    ...schedule,
+    sendCount: Number.isInteger(schedule.sendCount) && schedule.sendCount >= 0
+      ? schedule.sendCount
+      : sentHistory.length,
+    sentHistory,
+  };
+}
 
 async function getSchedules() {
   const data = await chrome.storage.local.get(STORAGE_KEY);
-  return data[STORAGE_KEY] || [];
+  return (data[STORAGE_KEY] || []).map(normalizeSchedule);
 }
 
 async function saveSchedules(schedules) {
@@ -71,15 +88,15 @@ async function waitForWhatsAppReady(tabId, timeoutMs = 45000) {
 }
 
 function computeNextRun(schedule) {
+  if (!RECURRING_OPTIONS.includes(schedule.recurring)) return NaN;
   const d = new Date(schedule.nextRun || schedule.scheduledTime);
 
-  if (schedule.recurring === "minute") {
-    do d.setMinutes(d.getMinutes() + 1);
-    while (d.getTime() <= Date.now());
-  }
-  if (schedule.recurring === "daily") d.setDate(d.getDate() + 1);
-  if (schedule.recurring === "weekly") d.setDate(d.getDate() + 7);
-  if (schedule.recurring === "monthly") d.setMonth(d.getMonth() + 1);
+  do {
+    if (schedule.recurring === "minute") d.setMinutes(d.getMinutes() + 1);
+    if (schedule.recurring === "daily") d.setDate(d.getDate() + 1);
+    if (schedule.recurring === "weekly") d.setDate(d.getDate() + 7);
+    if (schedule.recurring === "monthly") d.setMonth(d.getMonth() + 1);
+  } while (d.getTime() <= Date.now());
 
   return d.getTime();
 }
@@ -113,8 +130,12 @@ async function executeSchedule(id) {
         });
 
         if (res?.ok) {
+          const sentAt = Date.now();
           schedule.status = "sent";
-          schedule.sentAt = Date.now();
+          schedule.sentAt = sentAt;
+          schedule.sendCount += 1;
+          // ponytail: keep recent history bounded; use IndexedDB if a full audit trail is needed.
+          schedule.sentHistory = [...schedule.sentHistory, sentAt].slice(-HISTORY_LIMIT);
         } else {
           schedule.status = "failed";
           schedule.error = res?.error || "Send failed.";
@@ -125,7 +146,14 @@ async function executeSchedule(id) {
       }
     }
 
-    if (cancelledScheduleIds.has(id)) return;
+    if (cancelledScheduleIds.has(id)) {
+      if (schedule.recurring !== "none") {
+        schedule.status = "running";
+        const currentSchedules = await getSchedules();
+        await saveSchedules(currentSchedules.map((item) => item.id === id ? schedule : item));
+      }
+      return;
+    }
     const currentSchedules = await getSchedules();
     if (!currentSchedules.some((item) => item.id === id)) return;
 
@@ -160,6 +188,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       await saveSchedules(schedules);
       chrome.alarms.create(alarmNameFor(msg.schedule.id), { when: msg.schedule.scheduledTime });
       sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg.action === "updateSchedule") {
+      const message = String(msg.message || "").trim();
+      const nextRun = Number(msg.nextRun);
+      if (!message || !RECURRING_OPTIONS.includes(msg.recurring) || !Number.isFinite(nextRun) || nextRun <= Date.now()) {
+        sendResponse({ ok: false, error: "Invalid schedule update." });
+        return;
+      }
+
+      cancelledScheduleIds.add(msg.id);
+      try {
+        await chrome.alarms.clear(alarmNameFor(msg.id));
+        const running = runningExecutions.get(msg.id);
+        if (running) await running;
+
+        const schedules = await getSchedules();
+        const schedule = schedules.find((item) =>
+          item.id === msg.id && ["pending", "running"].includes(item.status) && RECURRING_OPTIONS.includes(item.recurring)
+        );
+        if (!schedule) {
+          sendResponse({ ok: false, error: "Only Running recurring schedules can be edited." });
+          return;
+        }
+
+        schedule.status = "running";
+        schedule.message = message;
+        schedule.recurring = msg.recurring;
+        schedule.scheduledTime = nextRun;
+        schedule.nextRun = nextRun;
+        delete schedule.error;
+        await saveSchedules(schedules);
+        chrome.alarms.create(alarmNameFor(msg.id), { when: nextRun });
+        sendResponse({ ok: true });
+      } finally {
+        cancelledScheduleIds.delete(msg.id);
+      }
       return;
     }
 

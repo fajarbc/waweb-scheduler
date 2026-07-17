@@ -11,7 +11,7 @@ const vm = require("node:vm");
   const context = {
     chrome: {
       alarms: {
-        create: (name) => createdAlarms.push(name),
+        create: (name, info) => createdAlarms.push({ name, ...info }),
         clear: async () => true,
         onAlarm: { addListener: (listener) => { alarmListener = listener; } },
       },
@@ -41,9 +41,8 @@ const vm = require("node:vm");
   };
   vm.runInNewContext(fs.readFileSync("background.js", "utf8"), context);
 
-  const sendAction = (action, id) => new Promise((resolve) => {
-    messageListener({ action, id }, {}, resolve);
-  });
+  const sendMessage = (message) => new Promise((resolve) => messageListener(message, {}, resolve));
+  const sendAction = (action, id) => sendMessage({ action, id });
   const start = Date.now() + 10 * 60 * 1000;
   const recurring = (id) => ({
     id,
@@ -62,7 +61,65 @@ const vm = require("node:vm");
   await context.executeSchedule("repeat");
   assert.equal(sends, 1);
   assert.equal(schedules[0].status, "running");
-  assert.deepEqual(createdAlarms, ["msg_repeat"]);
+  assert.equal(schedules[0].sendCount, 1);
+  assert.equal(schedules[0].sentHistory.length, 1);
+  assert.equal(schedules[0].sentHistory[0], schedules[0].sentAt);
+  assert.deepEqual(createdAlarms.map((alarm) => alarm.name), ["msg_repeat"]);
+
+  createdAlarms.length = 0;
+  const history = Array.from({ length: 50 }, (_, index) => index + 1);
+  schedules = [{ ...recurring("cap"), sendCount: 50, sentHistory: history }];
+  await context.executeSchedule("cap");
+  assert.equal(schedules[0].sendCount, 51);
+  assert.equal(schedules[0].sentHistory.length, 50);
+  assert.equal(schedules[0].sentHistory.includes(1), false);
+
+  const legacy = context.normalizeSchedule({ ...recurring("legacy"), sentAt: 123 });
+  assert.equal(legacy.sendCount, 1);
+  assert.deepEqual(Array.from(legacy.sentHistory), [123]);
+
+  createdAlarms.length = 0;
+  schedules = [{ ...recurring("edit"), sendCount: 3, sentHistory: [1, 2, 3] }];
+  const editedTime = Date.now() + 20 * 60 * 1000;
+  const edited = await sendMessage({
+    action: "updateSchedule",
+    id: "edit",
+    message: "Updated message",
+    recurring: "daily",
+    nextRun: editedTime,
+    target: "Ignored target",
+  });
+  assert.equal(edited.ok, true);
+  assert.equal(schedules[0].target, "Test");
+  assert.equal(schedules[0].message, "Updated message");
+  assert.equal(schedules[0].recurring, "daily");
+  assert.equal(schedules[0].nextRun, editedTime);
+  assert.equal(schedules[0].sendCount, 3);
+  assert.deepEqual(schedules[0].sentHistory, [1, 2, 3]);
+  assert.deepEqual(createdAlarms, [{ name: "msg_edit", when: editedTime }]);
+  await context.executeSchedule("edit");
+  assert.equal(schedules[0].sendCount, 4);
+
+  schedules = [{ ...recurring("legacy-edit"), status: "pending" }];
+  assert.equal((await sendMessage({
+    action: "updateSchedule",
+    id: "legacy-edit",
+    message: "Migrated",
+    recurring: "weekly",
+    nextRun: editedTime,
+  })).ok, true);
+  assert.equal(schedules[0].status, "running");
+
+  for (const invalid of [
+    { id: "edit", message: "", recurring: "daily", nextRun: editedTime },
+    { id: "edit", message: "x", recurring: "none", nextRun: editedTime },
+    { id: "edit", message: "x", recurring: "daily", nextRun: Date.now() - 1 },
+    { id: "missing", message: "x", recurring: "daily", nextRun: editedTime },
+  ]) {
+    assert.equal((await sendMessage({ action: "updateSchedule", ...invalid })).ok, false);
+  }
+  schedules[0].status = "stopped";
+  assert.equal((await sendMessage({ action: "updateSchedule", id: "legacy-edit", message: "x", recurring: "daily", nextRun: editedTime })).ok, false);
 
   sends = 0;
   createdAlarms.length = 0;

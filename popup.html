@@ -25,8 +25,11 @@
     .rt-btn .lbl-code { font-family: monospace; }
     button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; font-weight: 600; font-size: 0.9rem; }
 
-    .btn-primary { background-color: #25D366; color: white; width: 100%; margin-top: 5px; }
+    .btn-primary { background-color: #25D366; color: white; flex: 1; margin-top: 5px; }
     .btn-primary:hover { background-color: #1ebd5a; }
+    .form-actions { display: flex; gap: 8px; }
+    .btn-cancel { background: #eee; color: #555; margin-top: 5px; }
+    .edit-hint { color: #004085; background: #cce5ff; padding: 6px; border-radius: 4px; margin-bottom: 8px; font-size: 0.8rem; }
 
     .input-group { display: flex; gap: 5px; }
     .input-group input { flex: 1; }
@@ -49,9 +52,13 @@
     .status-sent { background-color: #d4edda; color: #155724; }
     .status-failed { background-color: #f8d7da; color: #721c24; }
     .schedule-actions { display: flex; gap: 8px; }
-    .stop-btn, .delete-btn { background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; }
+    .edit-btn, .stop-btn, .delete-btn { background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; }
+    .edit-btn { color: #128C7E; }
     .stop-btn { color: #d9534f; }
     .delete-btn { color: red; }
+    .send-history { margin: 4px 0; }
+    .send-history summary { cursor: pointer; color: #128C7E; }
+    .send-history ul { margin: 4px 0 0; padding-left: 20px; }
 
     .msg-preview { color: #444; margin-top: 4px; background: #f9f9f9; padding: 6px; border-radius: 4px; border: 1px solid #eee; word-break: break-word; }
     .msg-preview.collapsed { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -74,13 +81,15 @@
     </a>
   </div>
 
+  <div id="edit-hint" class="edit-hint" hidden></div>
+
   <div class="form-group">
     <label for="target">Target Name / Number</label>
     <div class="input-group">
       <input type="text" id="target" placeholder="e.g. John Doe" title="Exact WhatsApp chat, contact, or group name to search and open before sending." required>
       <button type="button" id="btn-capture" class="btn-capture" title="Auto-fill the name of the chat currently open in WhatsApp Web">Current Chat</button>
     </div>
-    <small class="hint">Use the exact chat/group name. Or open the chat in WhatsApp Web and click Current Chat.</small>
+    <small class="hint">Use exact chat/group name or open the chat & click Current Chat.</small>
   </div>
 
   <div class="form-group">
@@ -95,7 +104,6 @@
       <button type="button" class="rt-btn" data-cmd="quote" title="Quote (line prefix &gt; )">&#8220;</button>
     </div>
     <textarea id="message" placeholder="Type your message here..." title="Text message to send. Supports multiline text, emoji, and symbols." required></textarea>
-    <small class="hint">Hint: Press Enter on a numbered/bulleted line to auto-continue the list.</small>
   </div>
 
   <div class="row" style="margin-bottom: 12px;">
@@ -117,7 +125,10 @@
     </div>
   </div>
 
-  <button type="button" id="btn-save" class="btn-primary" title="Save this message and create a Chrome alarm for the selected time.">Schedule</button>
+  <div class="form-actions">
+    <button type="button" id="btn-save" class="btn-primary" title="Save this message and create a Chrome alarm for the selected time.">Schedule</button>
+    <button type="button" id="btn-cancel-edit" class="btn-cancel" hidden>Cancel</button>
+  </div>
   <div id="form-error" class="error-msg"></div>
 
   <div class="list-section">

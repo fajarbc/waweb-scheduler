@@ -6,10 +6,13 @@
  */
 
 const STORAGE_KEY = "schedules";
+const RECURRING_OPTIONS = ["minute", "daily", "weekly", "monthly"];
 let currentFilter = "all";
+let editingScheduleId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("btn-save").addEventListener("click", createSchedule);
+  document.getElementById("btn-save").addEventListener("click", saveSchedule);
+  document.getElementById("btn-cancel-edit").addEventListener("click", resetScheduleForm);
   document.getElementById("btn-capture").addEventListener("click", captureOpenChat);
   document.getElementById("btn-clear-history").addEventListener("click", clearHistory);
   document.querySelectorAll(".filter-tab").forEach((btn) => {
@@ -169,49 +172,98 @@ function formatDateTimeLocal(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-async function createSchedule() {
-  const errEl = document.getElementById("form-error");
-  errEl.textContent = "";
-
+function getFormValues() {
   const target = document.getElementById("target").value.trim();
   const message = document.getElementById("message").value.trim();
-  const timeStr = document.getElementById("time").value;
+  const nextRun = new Date(document.getElementById("time").value).getTime();
   const recurring = document.getElementById("recurring").value;
 
-  if (!target || !message || !timeStr) {
-    errEl.textContent = "Target, message, and time are required.";
+  if ((!editingScheduleId && !target) || !message || !Number.isFinite(nextRun)) {
+    return { error: "Target, message, and time are required." };
+  }
+  if (nextRun <= Date.now()) return { error: "Time must be in the future." };
+  if (editingScheduleId && !RECURRING_OPTIONS.includes(recurring)) {
+    return { error: "Choose a recurring frequency." };
+  }
+
+  return { target, message, nextRun, recurring };
+}
+
+function resetScheduleForm() {
+  editingScheduleId = null;
+  document.getElementById("target").value = "";
+  document.getElementById("target").readOnly = false;
+  document.getElementById("btn-capture").disabled = false;
+  document.getElementById("message").value = "";
+  document.getElementById("recurring").value = "none";
+  document.getElementById("time").value = formatDateTimeLocal(new Date(Date.now() + 5 * 60 * 1000));
+  document.getElementById("btn-save").textContent = "Schedule";
+  document.getElementById("btn-cancel-edit").hidden = true;
+  document.getElementById("edit-hint").hidden = true;
+  document.getElementById("form-error").textContent = "";
+}
+
+function editSchedule(schedule) {
+  editingScheduleId = schedule.id;
+  document.getElementById("target").value = schedule.target;
+  document.getElementById("target").readOnly = true;
+  document.getElementById("btn-capture").disabled = true;
+  document.getElementById("message").value = schedule.message;
+  document.getElementById("time").value = formatDateTimeLocal(new Date(schedule.nextRun || schedule.scheduledTime));
+  document.getElementById("recurring").value = schedule.recurring;
+  document.getElementById("btn-save").textContent = "Update";
+  document.getElementById("btn-cancel-edit").hidden = false;
+  const hint = document.getElementById("edit-hint");
+  hint.textContent = `Editing recurring schedule for ${schedule.target}`;
+  hint.hidden = false;
+  document.getElementById("form-error").textContent = "";
+}
+
+function saveSchedule() {
+  const errEl = document.getElementById("form-error");
+  errEl.textContent = "";
+  const values = getFormValues();
+  if (values.error) {
+    errEl.textContent = values.error;
     return;
   }
 
-  const scheduledTime = new Date(timeStr).getTime();
-  if (isNaN(scheduledTime)) {
-    errEl.textContent = "Invalid time format.";
-    return;
-  }
-  if (scheduledTime <= Date.now()) {
-    errEl.textContent = "Time must be in the future.";
+  if (editingScheduleId) {
+    chrome.runtime.sendMessage({
+      action: "updateSchedule",
+      id: editingScheduleId,
+      message: values.message,
+      nextRun: values.nextRun,
+      recurring: values.recurring,
+    }, (response) => {
+      if (!response?.ok) {
+        errEl.textContent = response?.error || "Failed to update schedule.";
+        return;
+      }
+      resetScheduleForm();
+      renderSchedules();
+    });
     return;
   }
 
   const schedule = {
     id: String(Date.now()) + Math.floor(Math.random() * 1000),
-    target,
-    targetType: "name", // Default to name for simplicity; capture fills name.
-    message,
-    scheduledTime,
-    nextRun: scheduledTime,
-    recurring,
-    status: recurring === "none" ? "pending" : "running",
+    target: values.target,
+    targetType: "name",
+    message: values.message,
+    scheduledTime: values.nextRun,
+    nextRun: values.nextRun,
+    recurring: values.recurring,
+    status: values.recurring === "none" ? "pending" : "running",
   };
 
   chrome.runtime.sendMessage({ action: "createSchedule", schedule }, (response) => {
-    if (response?.ok) {
-      document.getElementById("target").value = "";
-      document.getElementById("message").value = "";
-      renderSchedules();
-    } else {
+    if (!response?.ok) {
       errEl.textContent = "Failed to save schedule.";
+      return;
     }
+    resetScheduleForm();
+    renderSchedules();
   });
 }
 
@@ -223,6 +275,10 @@ async function renderSchedules() {
     schedules.forEach((schedule) => {
       if (schedule.recurring !== "none" && schedule.status === "pending") schedule.status = "running";
     });
+    const editing = schedules.find((schedule) => schedule.id === editingScheduleId);
+    if (editingScheduleId && (!editing || editing.recurring === "none" || editing.status !== "running")) {
+      resetScheduleForm();
+    }
     schedules = schedules.sort((a, b) => (b.nextRun || b.scheduledTime) - (a.nextRun || a.scheduledTime));
 
     if (currentFilter !== "all") {
@@ -250,6 +306,13 @@ async function renderSchedules() {
       actions.className = "schedule-actions";
 
       if (s.recurring !== "none" && s.status === "running") {
+        const editBtn = document.createElement("button");
+        editBtn.className = "edit-btn";
+        editBtn.textContent = "Edit";
+        editBtn.title = `Edit recurring schedule for ${s.target}`;
+        editBtn.onclick = () => editSchedule(s);
+        actions.appendChild(editBtn);
+
         const stopBtn = document.createElement("button");
         stopBtn.className = "stop-btn";
         stopBtn.textContent = "Stop";
@@ -281,6 +344,30 @@ async function renderSchedules() {
       const timeRow = document.createElement("div");
       timeRow.innerHTML = "<strong>When:</strong> ";
       timeRow.appendChild(document.createTextNode(dateStr + recLabel));
+
+      const history = Array.isArray(s.sentHistory)
+        ? s.sentHistory.filter(Number.isFinite)
+        : (Number.isFinite(s.sentAt) ? [s.sentAt] : []);
+      const sendCount = Number.isInteger(s.sendCount) ? s.sendCount : history.length;
+      const sentRow = document.createElement("div");
+      sentRow.innerHTML = "<strong>Sent:</strong> ";
+      sentRow.appendChild(document.createTextNode(`${sendCount} time${sendCount === 1 ? "" : "s"}`));
+
+      let historyDetails;
+      if (history.length > 0) {
+        historyDetails = document.createElement("details");
+        historyDetails.className = "send-history";
+        const summary = document.createElement("summary");
+        summary.textContent = `Recent sends (${history.length})`;
+        const historyList = document.createElement("ul");
+        [...history].reverse().forEach((sentAt) => {
+          const entry = document.createElement("li");
+          entry.textContent = new Date(sentAt).toLocaleString();
+          historyList.appendChild(entry);
+        });
+        historyDetails.appendChild(summary);
+        historyDetails.appendChild(historyList);
+      }
 
       const msgRow = document.createElement("div");
       msgRow.innerHTML = "<strong>Msg:</strong> ";
@@ -317,6 +404,8 @@ async function renderSchedules() {
       item.appendChild(header);
       item.appendChild(targetRow);
       item.appendChild(timeRow);
+      if (s.recurring !== "none") item.appendChild(sentRow);
+      if (historyDetails) item.appendChild(historyDetails);
       item.appendChild(msgRow);
 
       if (s.error) {
