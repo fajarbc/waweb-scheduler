@@ -8,7 +8,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-fajarbc%2Fwaweb--scheduler-blue?logo=github)](https://github.com/fajarbc/waweb-scheduler)
 
-A simple Google Chrome Extension to schedule sending text messages on WhatsApp Web automatically at a specified local time. It supports one-time and recurring (daily/weekly/monthly) messages.
+A simple Google Chrome Extension to schedule sending text messages on WhatsApp Web automatically at a specified local time. It supports one-time and recurring (every minute/daily/weekly/monthly) messages.
 
 > 🔒 **Privacy first:** Your messages and schedules never leave your browser. Everything is stored locally on your machine.
 

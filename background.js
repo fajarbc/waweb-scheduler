@@ -71,6 +71,10 @@ async function waitForWhatsAppReady(tabId, timeoutMs = 45000) {
 function computeNextRun(schedule) {
   const d = new Date(schedule.nextRun || schedule.scheduledTime);
 
+  if (schedule.recurring === "minute") {
+    do d.setMinutes(d.getMinutes() + 1);
+    while (d.getTime() <= Date.now());
+  }
   if (schedule.recurring === "daily") d.setDate(d.getDate() + 1);
   if (schedule.recurring === "weekly") d.setDate(d.getDate() + 7);
   if (schedule.recurring === "monthly") d.setMonth(d.getMonth() + 1);
