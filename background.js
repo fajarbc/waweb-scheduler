@@ -7,7 +7,20 @@ const RECURRING_OPTIONS = ["minute", "daily", "weekly", "monthly"];
 const ACTIVE = ["pending", "running", "retrying"];
 const GRACE_MS = 60000;
 const MAX_RETRIES = 2;
-const cancelled = new Set();
+// Each queued mutation owns a token; finishing one cannot release another's fence.
+const cancelled = new Map();
+function acquireCancellation(id) {
+  const token = Symbol();
+  if (!cancelled.has(id)) cancelled.set(id, new Set());
+  cancelled.get(id).add(token);
+  return token;
+}
+function releaseCancellation(id, token) {
+  const owners = cancelled.get(id);
+  if (!owners) return;
+  owners.delete(token);
+  if (!owners.size) cancelled.delete(id);
+}
 let queue = Promise.resolve();
 let activeSend = null;
 function enqueue(work) {
@@ -194,6 +207,13 @@ async function execute(id, alarmTime) {
     s.error = result?.error || "Send not confirmed. Check WhatsApp; no automatic retry.";
     if (s.status !== "unconfirmed") delete s.attempt;
   }
+  if (cancelled.has(id) && ACTIVE.includes(s.status)) {
+    // Persist a blocked state BEFORE the queued edit/stop/delete runs. A worker
+    // restart must not revive the occurrence in this intermediate snapshot.
+    s.status = "stopped";
+    s.cancellationPending = true;
+    delete s.retryAt;
+  }
   await saveSchedules(schedules);
   if (!cancelled.has(id)) await arm(s);
 }
@@ -220,6 +240,14 @@ async function handleMessage(msg) {
     await saveSchedules(schedules.filter((item) => !["sent", "reviewed"].includes(item.status)));
   } else {
     if (!s) throw new Error("Schedule not found.");
+    // Result persistence can fail without restarting the worker. Mutations must
+    // honor the durable dispatch marker too, not just execute()/reconcile().
+    if (s.attempt?.phase === "dispatching" && s.status !== "unconfirmed") {
+      s.status = "unconfirmed";
+      s.error = "Previous dispatch has no durable result. Review it in WhatsApp before continuing.";
+      delete s.retryAt;
+      await saveSchedules(schedules);
+    }
     await chrome.alarms.clear(alarmNameFor(s.id));
     if (msg.action === "deleteSchedule") {
       await saveSchedules(schedules.filter((item) => item.id !== s.id)); return { ok: true };
@@ -228,7 +256,9 @@ async function handleMessage(msg) {
       if (ACTIVE.includes(s.status)) s.status = "stopped";
       // Preserve ambiguous evidence even if the user presses Stop.
     } else if (msg.action === "updateSchedule") {
-      if (!["running", "retrying", "pending"].includes(s.status) || s.recurring === "none" ||
+      const editable = ["running", "retrying", "pending"].includes(s.status) ||
+        (s.status === "stopped" && s.cancellationPending === true);
+      if (!editable || s.recurring === "none" ||
           !RECURRING_OPTIONS.includes(msg.recurring) || !validTime(msg.nextRun) ||
           typeof msg.message !== "string" || !msg.message.trim()) {
         await arm(s); throw new Error("Only active recurring schedules can be edited with a future time.");
@@ -254,6 +284,7 @@ async function handleMessage(msg) {
     } else {
       await arm(s); throw new Error("Unknown action.");
     }
+    delete s.cancellationPending;
     delete s.retryAt;
     await saveSchedules(schedules); await arm(s);
   }
@@ -268,15 +299,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     "clearHistory", "resumeSchedule", "skipUnconfirmed"];
   if (!actions.includes(msg.action)) { sendResponse({ ok: false, error: "Unknown action." }); return; }
   const cancels = ["updateSchedule", "stopSchedule", "deleteSchedule"].includes(msg.action);
+  const cancellationToken = cancels ? acquireCancellation(msg.id) : null;
   if (cancels) {
-    cancelled.add(msg.id);
     if (activeSend?.id === msg.id) {
       chrome.tabs.sendMessage(activeSend.tabId, { action: "cancelSend" }).catch(() => {});
     }
   }
   enqueue(async () => {
     try { return await handleMessage(msg); }
-    finally { if (cancels) cancelled.delete(msg.id); }
+    finally { if (cancels) releaseCancellation(msg.id, cancellationToken); }
   }).then(sendResponse, (error) => sendResponse({ ok: false, error: error.message }));
   return true;
 });
