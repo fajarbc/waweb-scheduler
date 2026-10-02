@@ -128,6 +128,13 @@ async function execute(id, alarmTime) {
   const schedules = await getSchedules();
   const s = schedules.find((item) => item.id === id);
   if (!s || !ACTIVE.includes(s.status)) return;
+  if (s.attempt?.phase === "dispatching") {
+    s.status = "unconfirmed";
+    s.error = "Previous dispatch has no durable result. Check WhatsApp; no automatic retry.";
+    await saveSchedules(schedules);
+    await chrome.alarms.clear(alarmNameFor(id));
+    return;
+  }
   // A consumed/stale callback must not execute a later occurrence.
   if (alarmTime !== undefined && alarmTime !== dueAt(s)) return;
   if (dueAt(s) > Date.now()) { await arm(s); return; }
@@ -156,7 +163,7 @@ async function execute(id, alarmTime) {
       }
     }
   } catch (error) {
-    result = { outcome: s.attempt.phase === "dispatching" ? "unconfirmed" : "retryable",
+    result = { outcome: s.attempt?.phase === "dispatching" ? "unconfirmed" : "retryable",
       error: String(error.message || error) };
   } finally { activeSend = null; }
   const outcome = result?.outcome === "observed" && !result.messageId

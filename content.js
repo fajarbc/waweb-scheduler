@@ -7,6 +7,7 @@
   window.__waSchedulerRegistered = true;
   let busy = false;
   let cancelled = false;
+  let inserting = false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? "").replace(/\r\n?/g, "\n");
   const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -39,8 +40,11 @@
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
       setter.call(search, target);
     } else {
-      document.execCommand("selectAll");
-      document.execCommand("insertText", false, target);
+      inserting = true;
+      try {
+        document.execCommand("selectAll");
+        document.execCommand("insertText", false, target);
+      } finally { inserting = false; }
     }
     search.dispatchEvent(new Event("input", { bubbles: true }));
     // Wait for search to settle; never send to the unverified first result.
@@ -72,7 +76,6 @@
     busy = true; cancelled = false;
     let dispatched = false;
     let userInteracted = false;
-    let inserting = false;
     const onInput = (event) => {
       // execCommand emits a browser-trusted input event synchronously.
       if (event.isTrusted && !(inserting && event.type === "input")) userInteracted = true;
