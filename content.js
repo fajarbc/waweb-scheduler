@@ -1,206 +1,149 @@
 /**
- * content.js - Injected into web.whatsapp.com
- * Handles interacting with the WhatsApp Web DOM.
- *
- * Copyright (c) 2026 Fajar BC (https://github.com/fajarbc)
- * Licensed under MIT License
+ * Conservative WhatsApp DOM adapter. An observed outgoing bubble is NOT delivery.
+ * Copyright (c) 2026 Fajar BC. Licensed under MIT.
  */
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Ensure React recognizes inputs by dispatching input events.
-function triggerInputEvent(element) {
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-function simulateType(element, text) {
-  element.focus();
-
-  if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
-    element.value = text;
-    triggerInputEvent(element);
-  } else {
-    // For contenteditable, document.execCommand('insertText') handles newlines poorly across browsers
-    // We split by newline, insert text, and for each line break we simulate Shift+Enter
-    const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i]) {
-        document.execCommand("insertText", false, lines[i]);
-      }
-      if (i < lines.length - 1) {
-        // Dispatch Shift+Enter to create a newline in WhatsApp
-        element.dispatchEvent(new KeyboardEvent("keydown", {
-          bubbles: true, cancelable: true,
-          key: "Enter", code: "Enter", keyCode: 13,
-          shiftKey: true // Important for WhatsApp to register as newline instead of send
-        }));
-      }
-    }
-    triggerInputEvent(element);
+(() => {
+  if (window.__waSchedulerRegistered) return;
+  window.__waSchedulerRegistered = true;
+  let busy = false;
+  let cancelled = false;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const text = (el) => (el?.innerText ?? el?.textContent ?? "").replace(/\r\n?/g, "\n");
+  const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  function captureChatTitle() {
+    const el = document.querySelector('#main header span[data-testid="conversation-info-header-chat-title"]') ||
+      document.querySelector('#main header span[title]');
+    return (el?.getAttribute("title") || text(el)).trim();
   }
-}
-
-// Query DOM repeatedly until element appears
-async function waitForElement(selector, maxTries = 20, delayMs = 500) {
-  for (let i = 0; i < maxTries; i++) {
-    const el = document.querySelector(selector);
-    if (el) return el;
-    await sleep(delayMs);
+  function composer() {
+    return document.querySelector('#main footer div[contenteditable="true"]');
   }
-  throw new Error(`Timeout waiting for element: ${selector}`);
-}
-
-async function findContactInList(targetName) {
-  const spans = Array.from(document.querySelectorAll('span[title]'));
-  const match = spans.find((s) => s.getAttribute("title").toLowerCase() === targetName.toLowerCase());
-  return match;
-}
-
-async function doSendFlow(target, message) {
-  try {
-    // 1. Locate and focus the search box. WhatsApp frequently updates DOM classes.
-    const searchBoxSelectors = [
-      'input[aria-label="Search or start a new chat"]', // The new input element
-      'div[contenteditable="true"][data-tab="3"]',      // Old fallback
-      '#side div[contenteditable="true"]',
-      'div[title="Search input textbox"]',
-      'input[type="text"][data-tab="3"]'
-    ];
-
-    let searchBox;
-    for (let i = 0; i < 30; i++) {
-      for (const sel of searchBoxSelectors) {
-        searchBox = document.querySelector(sel);
-        if (searchBox) break;
-      }
-      if (searchBox) break;
-      await sleep(500);
-    }
-
-    if (!searchBox) {
-      throw new Error(`Could not find search box. WhatsApp may have updated its layout.`);
-    }
-
-    // Clear search box first just in case
-    searchBox.focus();
-    if (searchBox.tagName === "INPUT") {
-      searchBox.value = "";
-      triggerInputEvent(searchBox);
+  function fail(outcome, error) { return { outcome, error, ok: false }; }
+  function hasDraft(el) {
+    return Boolean(el && (el.textContent || el.querySelector("img,video,audio,[data-lexical-decorator]")));
+  }
+  function outgoing() {
+    return Array.from(document.querySelectorAll("#main .message-out")).map((el) => ({
+      id: el.closest("[data-id]")?.getAttribute("data-id") || el.getAttribute("data-id"),
+      text: text(el.querySelector(".selectable-text")),
+    })).filter((item) => item.id);
+  }
+  async function openTarget(target) {
+    if (same(captureChatTitle(), target)) return;
+    const search = document.querySelector('#side input[aria-label="Search or start a new chat"]') ||
+      document.querySelector('#side div[contenteditable="true"][data-tab="3"]') ||
+      document.querySelector('#side div[contenteditable="true"]');
+    if (!search) throw new Error("Search box not found. WhatsApp's layout may have changed.");
+    search.focus();
+    if (search.tagName === "INPUT") {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      setter.call(search, target);
     } else {
       document.execCommand("selectAll");
-      document.execCommand("delete");
+      document.execCommand("insertText", false, target);
     }
-    await sleep(500);
-
-    simulateType(searchBox, target);
-    await sleep(1000); // give WA time to fetch search results
-
-    // 2. Click the top search result simply by pressing Enter on the search box
-    searchBox.dispatchEvent(new KeyboardEvent("keydown", {
-      bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13
-    }));
-    await sleep(2000); // wait for chat view to load on the right
-
-    // Verify chat opened correctly
-    let chatTitleSpan = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
-    if (!chatTitleSpan || chatTitleSpan.textContent.trim().toLowerCase() !== target.toLowerCase()) {
-      // If pressing Enter didn't work, we try clicking the list.
-      const contactSpan = await findContactInList(target);
-      if (!contactSpan) {
-        throw new Error(`Contact/Group '${target}' not found in search results.`);
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    // Wait for search to settle; never send to the unverified first result.
+    await sleep(1000);
+    for (let i = 0; i < 20; i++) {
+      if (cancelled) throw new Error("Cancelled before opening chat.");
+      const matches = Array.from(document.querySelectorAll("#pane-side span[title]"))
+        .filter((el) => same(el.getAttribute("title") || "", target));
+      const rows = [...new Set(matches.map((el) => el.closest('[role="row"]') || el.parentElement))];
+      if (rows.length > 1) throw new Error("Multiple chats have this name. Use a unique chat name.");
+      if (rows.length === 1) {
+        rows[0].click();
+        for (let j = 0; j < 20; j++) {
+          if (cancelled) throw new Error("Cancelled while opening chat.");
+          if (same(captureChatTitle(), target) && composer()) return;
+          await sleep(250);
+        }
+        throw new Error("Could not verify the target chat.");
       }
-      const clickableArea = contactSpan.closest('div[role="row"]') || contactSpan.parentElement;
-      clickableArea.click();
-      await sleep(1500);
-
-      // Verify again after click
-      chatTitleSpan = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
+      await sleep(250);
     }
-
-    // Hard fail if we are not in the correct room
-    if (!chatTitleSpan || chatTitleSpan.textContent.trim().toLowerCase() !== target.toLowerCase()) {
-      throw new Error(`Failed to open target chat room. Active room is: ${chatTitleSpan ? chatTitleSpan.textContent.trim() : 'Unknown'}`);
+    throw new Error("Exact target chat not found.");
+  }
+  async function doSendFlow(target, message) {
+    if (busy) return fail("blocked", "Another send is using WhatsApp. Retry manually after it finishes.");
+    if (typeof target !== "string" || !target.trim() || typeof message !== "string" || !message.trim()) {
+      return fail("blocked", "Target and message are required.");
     }
-
-    // 3. Locate the chat message box (usually the contenteditable inside footer)
-    const msgBoxSelectors = [
-      'footer div[contenteditable="true"]',
-      '#main div[title="Type a message"]',
-      '#main footer .copyable-text[contenteditable="true"]',
-      '#main div[contenteditable="true"][data-tab="10"]'
-    ];
-    let msgBox;
-    for (let i = 0; i < 30; i++) {
-      for (const sel of msgBoxSelectors) {
-        msgBox = document.querySelector(sel);
-        if (msgBox) break;
+    busy = true; cancelled = false;
+    let dispatched = false;
+    let userInteracted = false;
+    let inserting = false;
+    const onInput = (event) => {
+      // execCommand emits a browser-trusted input event synchronously.
+      if (event.isTrusted && !(inserting && event.type === "input")) userInteracted = true;
+    };
+    document.addEventListener("pointerdown", onInput, true);
+    document.addEventListener("keydown", onInput, true);
+    document.addEventListener("input", onInput, true);
+    try {
+      await openTarget(target);
+      if (cancelled) return fail("cancelled", "Cancelled before composing.");
+      if (userInteracted) return fail("blocked", "WhatsApp was used during preparation. Retry when idle.");
+      const box = composer();
+      if (!box || !same(captureChatTitle(), target)) return fail("blocked", "Target chat changed.");
+      if (hasDraft(box)) return fail("blocked", "Existing draft left untouched. Save or remove it before retrying.");
+      const before = new Set(outgoing().map((item) => item.id));
+      box.focus();
+      // Insert as one text operation, then verify instead of assuming newline handling worked.
+      let inserted;
+      inserting = true;
+      try { inserted = document.execCommand("insertText", false, message); }
+      finally { inserting = false; }
+      if (!inserted) {
+        return fail("blocked", "Could not insert message. Check the composer before retrying.");
       }
-      if (msgBox) break;
-      await sleep(500);
-    }
-    if (!msgBox) throw new Error("Could not find message input box.");
-
-    // 4. Type the message
-    simulateType(msgBox, message);
-    await sleep(250);
-
-    // 5. Send with Enter instead of relying on WhatsApp's changing send button DOM.
-    msgBox.dispatchEvent(new KeyboardEvent("keydown", {
-      bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13
-    }));
-
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}
-
-function captureChatTitle() {
-  // First priority: use the exact testid attribute WhatsApp puts on the main chat room title
-  const exactHeader = document.querySelector('span[data-testid="conversation-info-header-chat-title"]');
-  if (exactHeader) {
-    const t = (exactHeader.getAttribute('title') || exactHeader.textContent || '').trim();
-    if (t) return t;
-  }
-
-  // Fallbacks scoped strictly to the #main conversation header
-  const candidates = [
-    document.querySelector('#main header span[data-testid="conversation-info-header-chat-title"]'),
-    document.querySelector('#main header span[title]'),
-    document.querySelector('#main header .copyable-text span'),
-  ];
-  for (const el of candidates) {
-    if (el) {
-      const t = (el.getAttribute('title') || el.textContent || '').trim();
-      if (t) return t;
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(250);
+      if (cancelled) return fail("cancelled", "Cancelled before Enter; check the unsent composer text.");
+      if (userInteracted || !box.isConnected || composer() !== box ||
+          !same(captureChatTitle(), target) || text(box) !== message) {
+        return fail("blocked", "Composer or chat changed. Nothing was sent by the scheduler; inspect the draft.");
+      }
+      // No await between final checks and dispatch.
+      dispatched = true;
+      box.dispatchEvent(new KeyboardEvent("keydown", {
+        bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13,
+      }));
+      for (let i = 0; i < 60; i++) {
+        if (userInteracted || !same(captureChatTitle(), target) || cancelled) {
+          return fail("unconfirmed", "Chat changed or send was interrupted after Enter. Check WhatsApp; do not blindly retry.");
+        }
+        const observed = outgoing().find((item) => !before.has(item.id) && item.text === message);
+        if (observed && composer() === box && !text(box).trim()) {
+          return { ok: true, outcome: "observed", messageId: observed.id };
+        }
+        await sleep(250);
+      }
+      return fail("unconfirmed", "No matching new outgoing message was observed. Check WhatsApp before any further action.");
+    } catch (error) {
+      return fail(dispatched ? "unconfirmed" : cancelled ? "cancelled" : "blocked", error.message);
+    } finally {
+      busy = false;
+      document.removeEventListener("pointerdown", onInput, true);
+      document.removeEventListener("keydown", onInput, true);
+      document.removeEventListener("input", onInput, true);
     }
   }
-  return null;
-}
-
-if (!window.__waSchedulerRegistered) {
-  window.__waSchedulerRegistered = true;
-
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "status") {
-      const isReady = !!document.querySelector('input[aria-label="Search or start a new chat"], div[contenteditable="true"][data-tab="3"], #pane-side');
-      const isLoggedOut = !!document.querySelector('canvas[aria-label="Scan me!"], div[data-ref] canvas');
-
-      sendResponse({ ready: isReady, loggedOut: isLoggedOut });
-      return;
+      sendResponse({
+        ready: Boolean(document.querySelector("#pane-side")),
+        loggedOut: Boolean(document.querySelector('canvas[aria-label="Scan me!"], div[data-ref] canvas')),
+      }); return;
     }
-
     if (msg.action === "capture") {
       const title = captureChatTitle();
-      sendResponse(title ? { ok: true, title } : { ok: false, error: "No open chat detected." });
-      return;
+      sendResponse(title ? { ok: true, title } : { ok: false, error: "No open chat detected." }); return;
     }
-
+    if (msg.action === "cancelSend") { cancelled = true; sendResponse({ ok: true }); return; }
     if (msg.action === "send") {
       doSendFlow(msg.target, msg.message).then(sendResponse);
       return true;
     }
   });
-}
+})();
